@@ -1,0 +1,49 @@
+name: Build and Release
+
+# Every push to main builds SilentDNS.exe and publishes it as a new Release.
+# You can also run it by hand: Actions tab -> Build and Release -> Run workflow.
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build SilentDNS.exe
+        shell: pwsh
+        run: |
+          $csc = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -find "MSBuild\**\Roslyn\csc.exe" | Select-Object -First 1
+          if (-not $csc) { $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" }
+          Write-Host "Using compiler: $csc"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & $csc -nologo -target:winexe -optimize+ -platform:anycpu `
+            -r:System.dll -r:System.Core.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll `
+            "-win32icon:src\app.ico" "-win32manifest:src\app.manifest" `
+            "-out:dist\SilentDNS.exe" src\SilentDNS.cs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\SilentDNS.exe | Format-List Name, Length
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SilentDNS
+          path: dist/SilentDNS.exe
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.${{ github.run_number }}
+          name: SilentDNS for Windows v1.1.${{ github.run_number }}
+          body: |
+            Portable tray DNS changer for Windows 10/11. No install.
+            Download **SilentDNS.exe**, put it in a permanent folder (e.g. `C:\Tools\SilentDNS\`), and run it once as admin.
+          files: dist/SilentDNS.exe
+          make_latest: true
